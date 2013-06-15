@@ -25,15 +25,15 @@ struct BlockArray
     }
 
     // unchecked!
-    inline unsigned char& operator()(const int x, const int y, const int z)
+    inline unsigned char operator()(const int x, const int y, const int z) const
     {
         return buf[x * zSize * ySize + z * ySize + y];
     }
 
     // unchecked!
-    inline unsigned char get(const int x, const int y, const int z) const
+    inline void set(const int x, const int y, const int z, const int id)
     {
-        return buf[x * zSize * ySize + z * ySize + y];
+        buf[x * zSize * ySize + z * ySize + y] = id;
     }
 };
 

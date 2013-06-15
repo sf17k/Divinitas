@@ -17,7 +17,7 @@ inline void makeBox(BlockArray& b,
     for (int ix = x; ix < x + sx; ix++)
     for (int iz = z; iz < z + sz; iz++)
     for (int iy = y; iy < y + sy; iy++)
-        b(ix,iy,iz) = id;
+        b.set(ix,iy,iz, id);
 }
 
 // unchecked!
@@ -29,7 +29,7 @@ inline void duplicateBox(BlockArray& b,
     for (int iz = z; iz < z + sz; iz++)
     for (int iy = y; iy < y + sy; iy++)
         if(b(ix,iy,iz))
-            b(ix+dx*i,iy+dy*i,iz+dz*i) = b(ix,iy,iz);
+            b.set(ix+dx*i, iy+dy*i, iz+dz*i, b(ix,iy,iz));
 }
 
 
@@ -60,7 +60,7 @@ ERR generateWorld(const char *worldName, const int size, const int voidPadding)
     for (int x = pd; x < mx - pd; x++)
     for (int z = pd; z < mz - pd; z++)
     for (int y = 0; y < my; y++) {
-        b(x,y,z) = y < 128 ? 1 : 0;
+        b.set(x,y,z, y < 128 ? 1 : 0);
     }
 
     // make random boxes near ground level

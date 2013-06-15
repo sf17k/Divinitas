@@ -78,9 +78,9 @@ struct WorldParams
         for (int z = 0; z < b.zSize; z++) {
             int y = b.ySize - 1;
             // while going through air
-            while (y >= 0 && b.get(x,y,z) == 0) {
+            while (y >= 0 && b(x,y,z) == 0) {
                 // set skylight
-                sl(x,y,z) = 15;
+                sl.set(x,y,z,15);
                 y--;
             }
             // set heightmap
@@ -104,8 +104,8 @@ struct WorldParams
         for (int i = 14; i > 0; i--) {
             for (deque<Vec3>::iterator it = q.begin(); it != q.end(); ++it) {
 #define LIGHTING_TRY(x, y, z) \
-                if (b.get(x,y,z) == 0 && sl(x,y,z) < i) { \
-                    sl(x,y,z) = i; \
+                if (b(x,y,z) == 0 && sl(x,y,z) < i) { \
+                    sl.set(x,y,z,i); \
                     if (x>0 && y>0 && z>0 \
                             && x<b.xSize-1 && y<b.ySize-1 && z<b.zSize-1) \
                         qnext.emplace_back(x,y,z); \
@@ -271,11 +271,11 @@ struct MCAChunkSection
         for (int x=0; x<CHUNK_WIDTH; x++) {
             const int i = y * CHUNK_WIDTH * CHUNK_WIDTH + z * CHUNK_WIDTH + x;
             // copy in blockids and light
-            Blocks[i] = params.b.get(sx+x, sy+y, sz+z);
+            Blocks[i] = params.b(sx+x, sy+y, sz+z);
             if (i & 1) {
                 Data[i/2] = 0;
                 BlockLight[i/2] = 0;
-                SkyLight[i/2] = (params.sl.get(sx+x, sy+y, sz+z) << 4) | params.sl.get(sx+x-1, sy+y, sz+z);
+                SkyLight[i/2] = (params.sl(sx+x, sy+y, sz+z) << 4) | params.sl(sx+x-1, sy+y, sz+z);
             }
         }
     }
