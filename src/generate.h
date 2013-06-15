@@ -3,7 +3,8 @@
 
 #include "error.h"
 
-ERR generateWorld(const char *worldName, int size, int voidPadding);
+ERR generateWorld(const char *worldName, int size, int voidPadding,
+        int pt_scaleh, int pt_scalev);
 
 #endif
 

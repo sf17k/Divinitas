@@ -44,13 +44,15 @@ struct Arg : public option::Arg
 
 // options accepted by program
 enum optionIndex {
-    UNKNOWN, HELP, SIZE, PADDING,
+    UNKNOWN, HELP, SIZE, PADDING, PT_SCALEH, PT_SCALEV
 };
 const option::Descriptor usage[] = {
 { UNKNOWN, 0,"","",        Arg::Unknown, "USAGE:\n   divinitas [options] world_name\n\nOptions:" },
 { HELP,    0,"h","help",   Arg::None,    "  -h, \t--help  \tPrint usage and exit." },
 { SIZE,    0,"s","size",   Arg::Numeric, "  -s <num>, \t--size=<num>  \tSize of world in chunks." },
 { PADDING, 0,"p","padding",Arg::Numeric, "  -p <num>, \t--padding=<num>  \tWidth of border of empty chunks around world (default 0)." },
+{ PT_SCALEH,0,"","ptscaleh",Arg::Numeric,"   \t--ptscaleh=<num>  \tPlaTec horizontal scale (default 2)." },
+{ PT_SCALEV,0,"","ptscalev",Arg::Numeric,"   \t--ptscalev=<num>  \tPlaTec vertical scale (default 4)." },
 /*
 { OPTIONAL,0,"o","optional",Arg::Optional,"  -o[<arg>], \t--optional[=<arg>]"
                                           "  \tTakes an argument but is happy without one." },
@@ -83,6 +85,8 @@ int main(int argc, char* argv[])
     const char* name = parse.nonOption(0);
     int size = 64;
     int padding = 0;
+    int pt_scaleh = 2;
+    int pt_scalev = 4;
 
     for (int i = 0; i < parse.optionsCount(); ++i) {
         option::Option& opt = buffer[i];
@@ -101,6 +105,13 @@ int main(int argc, char* argv[])
         case PADDING:
             padding = strtol(opt.arg, NULL, 10);
             break;
+        case PT_SCALEH:
+            pt_scaleh = strtol(opt.arg, NULL, 10);
+            break;
+        case PT_SCALEV:
+            pt_scalev = strtol(opt.arg, NULL, 10);
+            break;
+
         case HELP:
             // not possible, because handled further above and exits the program
         case UNKNOWN:
@@ -115,7 +126,7 @@ int main(int argc, char* argv[])
         cout <<"Non-option argument #"<<i<<" is "<<parse.nonOption(i)<<"\n";
     */
 
-    switch (generateWorld(name, size, padding)) {
+    switch (generateWorld(name, size, padding, pt_scaleh, pt_scalev)) {
     case ERR::NONE:
         break;
     case ERR::PATH_EXISTS:

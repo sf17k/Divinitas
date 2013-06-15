@@ -1,6 +1,8 @@
-OBJECTS = main.o nbt.o export.o generate.o
+OBJECTS = main.o nbt.o export.o generate.o lithosphere.o plate.o sqrdmd.o
 EXECUTABLE = ../divinitas.exe
 
+CC = gcc
+CCFLAGS = -O3 -Wall
 CXX = g++
 CXXFLAGS = -O3 -Wall -std=c++11 -g
 LDFLAGS = -static-libgcc -static-libstdc++ -lopengl32 -lglu32 -lfreeglut -lnbt -lz -lboost_filesystem -lboost_system
@@ -17,6 +19,9 @@ $(EXECUTABLE): $(OUT_OBJS)
 
 $(OUT_DIR)/%.o : %.cpp
 	$(CXX) -c $(CXXFLAGS) $< -o $@
+
+$(OUT_DIR)/%.o : %.c
+	$(CC) -c $(CCFLAGS) $< -o $@
 
 .PHONY: clean
 clean:

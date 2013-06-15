@@ -6,6 +6,10 @@
 
 #include "plate.hpp"
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #define INITIAL_SPEED_X 1
 #define DEFORMATION_WEIGHT 5
 /*
@@ -308,10 +312,11 @@ void plate::collide(plate& p, size_t wx, size_t wy, float coll_mass) throw()
 	// happen in the overlapping region of the two plates.
 	size_t apx = wx, apy = wy, bpx = wx, bpy = wy;
 	float ap_dx, ap_dy, bp_dx, bp_dy, nx, ny;
+
+	#ifdef DEBUG
 	size_t index = getMapIndex(&apx, &apy);
 	size_t p_index = p.getMapIndex(&bpx, &bpy);
 
-	#ifdef DEBUG
 	if (index >= width * height || p_index >= p.width * p.height)
 	{
 		printf("@%u, %u: out of colliding map's bounds!\n", wx, wy);
