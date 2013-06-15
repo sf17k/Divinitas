@@ -5,6 +5,7 @@
 #include <sstream>
 #include <vector>
 #include <algorithm>
+#include <deque>
 #define BOOST_FILESYSTEM_NO_DEPRECATED
 #include <boost/filesystem.hpp>
 using namespace std;
@@ -33,6 +34,13 @@ inline void writeByte(int8_t n, FILE *out) {
 }
 
 
+struct Vec3
+{
+    int x, y, z;
+    Vec3(int _x, int _y, int _z) : x(_x), y(_y), z(_z) {}
+};
+
+
 struct WorldParams
 {
     const BlockArray& b;
@@ -59,6 +67,8 @@ struct WorldParams
 
         cout << "lighting..." << endl;
 
+        deque<Vec3> q, qnext; // processing queue
+
         // clear light maps
         std::fill_n(sl.buf, sl.xSize * sl.zSize * sl.ySize, 0);
         std::fill_n(bl.buf, bl.xSize * bl.zSize * bl.ySize, 0);
@@ -77,22 +87,42 @@ struct WorldParams
             hm[z * b.xSize + x] = y + 1;
         }
 
-        // naive lighting
+        // initialize lighting queue
+        for (int x = 1; x < b.xSize - 1; x++)
+        for (int z = 1; z < b.zSize - 1; z++) {
+            int hi = max({
+                    hm[(z)*b.xSize + x-1],
+                    hm[(z)*b.xSize + x+1],
+                    hm[(z-1)*b.xSize + x],
+                    hm[(z+1)*b.xSize + x]});
+            int lo = max(hm[z*b.xSize + x], 1);
+            for (int y = hi - 1; y >= lo; y--)
+                q.emplace_back(x,y,z); // add to queue
+        }
+
+        // perform lighting
         for (int i = 14; i > 0; i--) {
-            for (int x = 1; x < b.xSize - 1; x++)
-            for (int z = 1; z < b.zSize - 1; z++)
-            for (int y = 1; y < b.ySize - 1; y++) {
-                if (bl.get(x,y,z) == 0 && sl(x,y,z) < i && (
-                            sl(x+1,y,z) == i+1 ||
-                            sl(x-1,y,z) == i+1 ||
-                            sl(x,y+1,z) == i+1 ||
-                            sl(x,y-1,z) == i+1 ||
-                            sl(x,y,z+1) == i+1 ||
-                            sl(x,y,z-1) == i+1 )) {
-                    sl(x,y,z) = i;
+            for (deque<Vec3>::iterator it = q.begin(); it != q.end(); ++it) {
+#define LIGHTING_TRY(x, y, z) \
+                if (b.get(x,y,z) == 0 && sl(x,y,z) < i) { \
+                    sl(x,y,z) = i; \
+                    if (x>0 && y>0 && z>0 \
+                            && x<b.xSize-1 && y<b.ySize-1 && z<b.zSize-1) \
+                        qnext.emplace_back(x,y,z); \
                 }
+                int x = it->x;
+                int y = it->y;
+                int z = it->z;
+                LIGHTING_TRY(x+1,y,z);
+                LIGHTING_TRY(x-1,y,z);
+                LIGHTING_TRY(x,y+1,z);
+                LIGHTING_TRY(x,y-1,z);
+                LIGHTING_TRY(x,y,z+1);
+                LIGHTING_TRY(x,y,z-1);
+#undef LIGHTING_TRY
             }
-            cout << 15-i << "/14" << endl;
+            q.clear();
+            q.swap(qnext);
         }
 
     }
@@ -240,13 +270,7 @@ struct MCAChunkSection
         for (int z=0; z<CHUNK_WIDTH; z++)
         for (int x=0; x<CHUNK_WIDTH; x++) {
             const int i = y * CHUNK_WIDTH * CHUNK_WIDTH + z * CHUNK_WIDTH + x;
-            /*
-            // generate flat world
-            if (empty)
-                Blocks[i] = 0;
-            else
-                Blocks[i] = yIndex * SECTION_HEIGHT + y < 4 ? 1 : 0;
-            */
+            // copy in blockids and light
             Blocks[i] = params.b.get(sx+x, sy+y, sz+z);
             if (i & 1) {
                 Data[i/2] = 0;
