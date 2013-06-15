@@ -17,6 +17,7 @@ struct BlockArray
     {
         buf = new unsigned char[xSize * zSize * ySize];
     }
+
     ~BlockArray()
     {
         if (buf)
@@ -28,6 +29,7 @@ struct BlockArray
     {
         return buf[x * zSize * ySize + z * ySize + y];
     }
+
     // unchecked!
     inline unsigned char get(const int x, const int y, const int z) const
     {

@@ -4,6 +4,7 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <algorithm>
 #define BOOST_FILESYSTEM_NO_DEPRECATED
 #include <boost/filesystem.hpp>
 using namespace std;
@@ -35,12 +36,72 @@ inline void writeByte(int8_t n, FILE *out) {
 struct WorldParams
 {
     const BlockArray& b;
-    int startX, startZ, sizeX, sizeZ;
+    BlockArray sl; // skylight
+    BlockArray bl; // blocklight
+    int32_t *hm; // heightmap, ZX order!
+
+    const int sizeX, sizeZ, startX, startZ; // in chunks
 
     // dimensions in chunks
     WorldParams(const BlockArray& _b) :
-        b(_b)
-    { }
+        b(_b),
+        sl(_b.xSize, _b.zSize),
+        bl(_b.xSize, _b.zSize),
+        hm(NULL),
+        // assume size is multiple of 16
+        sizeX(_b.xSize/16),
+        sizeZ(_b.zSize/16),
+        // center world on origin
+        startX(-(sizeX/2)),
+        startZ(-(sizeZ/2))
+    {
+        hm = new int32_t[b.zSize * b.xSize];
+
+        cout << "lighting..." << endl;
+
+        // clear light maps
+        std::fill_n(sl.buf, sl.xSize * sl.zSize * sl.ySize, 0);
+        std::fill_n(bl.buf, bl.xSize * bl.zSize * bl.ySize, 0);
+
+        // calculate heightmap and lighting
+        for (int x = 0; x < b.xSize; x++)
+        for (int z = 0; z < b.zSize; z++) {
+            int y = b.ySize - 1;
+            // while going through air
+            while (y >= 0 && b.get(x,y,z) == 0) {
+                // set skylight
+                sl(x,y,z) = 15;
+                y--;
+            }
+            // set heightmap
+            hm[z * b.xSize + x] = y + 1;
+        }
+
+        // naive lighting
+        for (int i = 14; i > 0; i--) {
+            for (int x = 1; x < b.xSize - 1; x++)
+            for (int z = 1; z < b.zSize - 1; z++)
+            for (int y = 1; y < b.ySize - 1; y++) {
+                if (bl.get(x,y,z) == 0 && sl(x,y,z) < i && (
+                            sl(x+1,y,z) == i+1 ||
+                            sl(x-1,y,z) == i+1 ||
+                            sl(x,y+1,z) == i+1 ||
+                            sl(x,y-1,z) == i+1 ||
+                            sl(x,y,z+1) == i+1 ||
+                            sl(x,y,z-1) == i+1 )) {
+                    sl(x,y,z) = i;
+                }
+            }
+            cout << 15-i << "/14" << endl;
+        }
+
+    }
+
+    ~WorldParams()
+    {
+        if (hm)
+            delete[] hm;
+    }
 };
 
 
@@ -187,10 +248,11 @@ struct MCAChunkSection
                 Blocks[i] = yIndex * SECTION_HEIGHT + y < 4 ? 1 : 0;
             */
             Blocks[i] = params.b.get(sx+x, sy+y, sz+z);
-            //TODO: more sophisticated way of handling 4-bit values
-            Data[i/2] = 0;
-            BlockLight[i/2] = 0;
-            SkyLight[i/2] = 0;
+            if (i & 1) {
+                Data[i/2] = 0;
+                BlockLight[i/2] = 0;
+                SkyLight[i/2] = (params.sl.get(sx+x, sy+y, sz+z) << 4) | params.sl.get(sx+x-1, sy+y, sz+z);
+            }
         }
     }
 
@@ -249,8 +311,11 @@ struct MCAChunk
         for (int i=0; i<BIOMES_SIZE; i++)
             Biomes[i] = 0;
         
-        for (int i=0; i<HEIGHTMAP_SIZE; i++)
-            HeightMap[i] = 128;
+        const int sx = (xPos - params.startX) * 16;
+        const int sz = (zPos - params.startZ) * 16;
+        for (int z=0; z<CHUNK_WIDTH; z++)
+        for (int x=0; x<CHUNK_WIDTH; x++)
+            HeightMap[z*CHUNK_WIDTH + x] = params.hm[(sz+z)*params.b.xSize + sx+x];
         
         for (int i=0; i<MAX_SECTIONS; i++)
             Sections.push_back(new MCAChunkSection(i, xPos, zPos, params));
@@ -463,11 +528,7 @@ struct World
         leveldat(NULL),
         chunks(NULL)
     {
-        // assume size is multiple of 16
-        params.sizeX = b.xSize/16;
-        params.sizeZ = b.zSize/16;
-        params.startX = -(params.sizeX/2);
-        params.startZ = -(params.sizeZ/2);
+        cout << "converting world..." << endl;
 
         // create level.dat structure
         leveldat = new LevelDat();
@@ -497,6 +558,8 @@ struct World
     {
         if (exists(dirName))
             return ERR::PATH_EXISTS;
+
+        cout << "exporting..." << endl;
 
         // create world dir
         create_directory(dirName);
