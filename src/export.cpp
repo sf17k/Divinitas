@@ -388,10 +388,10 @@ struct Region
     // dimensions of 'chunks' array
     int sizeX;
     int sizeZ;
-    // references contents of World::chunks
+    // 2d array of pointers: ZX order
     MCAChunk **chunks;
 
-    Region(const int _xIndex, const int _zIndex, const WorldParams& p, MCAChunk** wchunks) :
+    Region(const int _xIndex, const int _zIndex, const WorldParams& p) :
         xIndex(_xIndex),
         zIndex(_zIndex),
         startX(_xIndex * REGION_WIDTH),
@@ -427,21 +427,22 @@ struct Region
             chunks = new MCAChunk*[sizeZ * sizeX];
             for (int i = 0; i < sizeZ * sizeX; i++)
                 chunks[i] = NULL;
-            // offsets between world's and this region's 'chunks' arrays
-            const int dz = startZ - p.startZ;
-            const int dx = startX - p.startX;
-            // raw 2D access!
             for (int iz = 0; iz < sizeZ; iz++)
-            for (int ix = 0; ix < sizeX; ix++)
-                chunks[iz * sizeX + ix] = wchunks[(dz + iz) * p.sizeX + (dx + ix)];
+            for (int ix = 0; ix < sizeX; ix++) {
+                chunks[iz * sizeX + ix] = new MCAChunk(startX + ix, startZ + iz, p);
+            }
+
         }
     }
 
     ~Region()
     {
-        // don't delete actual chunks (taken care of by World)
-        if (chunks)
+        if (chunks) {
+            for (int i = 0; i < sizeZ * sizeX; i++)
+                if (chunks[i])
+                    delete chunks[i];
             delete[] chunks;
+        }
     }
 
     ERR writeToFile() const
@@ -541,42 +542,14 @@ struct World
     string name;
     WorldParams params;
 
-    LevelDat *leveldat;
-    // 2d array of pointers: ZX order
-    MCAChunk **chunks;
-
     // parameters measured in chunks
     World(const char *_name, const BlockArray& b) :
         name(_name),
-        params(b),
-        leveldat(NULL),
-        chunks(NULL)
-    {
-        cout << "converting world..." << endl;
-
-        // create level.dat structure
-        leveldat = new LevelDat();
-
-        // create chunks
-        chunks = new MCAChunk*[params.sizeZ * params.sizeX];
-        for (int i = 0; i < params.sizeZ * params.sizeX; i++)
-            chunks[i] = NULL;
-        for (int iz = 0; iz < params.sizeZ; iz++)
-        for (int ix = 0; ix < params.sizeX; ix++) {
-            //bool empty = ix < padding || iz < padding || sizeX - ix <= padding || sizeZ - iz <= padding;
-            chunks[iz * params.sizeX + ix] = new MCAChunk(params.startX + ix, params.startZ + iz, params);
-        }
-    }
+        params(b)
+    { }
 
     ~World()
-    {
-        if (chunks) {
-            for (int i = 0; i < params.sizeZ * params.sizeX; i++)
-                if (chunks[i])
-                    delete chunks[i];
-            delete[] chunks;
-        }
-    }
+    { }
 
     ERR writeToDir(const char *dirName)
     {
@@ -588,6 +561,9 @@ struct World
         // create world dir
         create_directory(dirName);
         current_path(dirName);
+
+        // create level.dat structure
+        LevelDat *leveldat = new LevelDat();
 
         // get level.dat NBT
         nbt_node *levelnbt = leveldat->toNBT();
@@ -605,6 +581,7 @@ struct World
         }
 
         nbt_free(levelnbt);
+        delete leveldat;
 
         if (result != ERR::NONE)
             return result;
@@ -623,7 +600,7 @@ struct World
         for (int iz = rgnMinZ; iz <= rgnMaxZ; iz++)
         for (int ix = rgnMinX; ix <= rgnMaxX; ix++) {
             // short-lived region instance
-            Region *rgn = new Region(ix, iz, params, chunks);
+            Region *rgn = new Region(ix, iz, params);
             ERR result = rgn->writeToFile();
             delete rgn;
             if (result != ERR::NONE)
