@@ -12,20 +12,6 @@ using namespace std;
 using namespace boost::filesystem;
 
 
-const int REGION_WIDTH = 32; // chunks
-const int CHUNK_WIDTH = 16;
-const int CHUNK_HEIGHT = 256;
-const int SECTION_HEIGHT = 16;
-const int MAX_SECTIONS = CHUNK_HEIGHT / SECTION_HEIGHT;
-
-const int BIOMES_SIZE = CHUNK_WIDTH * CHUNK_WIDTH;
-const int HEIGHTMAP_SIZE = CHUNK_WIDTH * CHUNK_WIDTH; // ints
-const int BLOCKS_SIZE = CHUNK_WIDTH * CHUNK_WIDTH * SECTION_HEIGHT;
-const int DATA_SIZE = BLOCKS_SIZE/2;
-const int BLOCKLIGHT_SIZE = BLOCKS_SIZE/2;
-const int SKYLIGHT_SIZE = BLOCKS_SIZE/2;
-
-
 inline void writeInt(int32_t n, FILE *out) {
     n = __builtin_bswap32(n); fwrite(&n, 4, 1, out);
 }
@@ -43,95 +29,20 @@ struct Vec3
 
 struct WorldParams
 {
-    const BlockArray& b;
-    BlockArray sl; // skylight
-    BlockArray bl; // blocklight
-    int32_t *hm; // heightmap, ZX order!
-
     const int sizeX, sizeZ, startX, startZ; // in chunks
+    ChunkCallback chunkCB;
+    SectionCallback sectionCB;
 
     // dimensions in chunks
-    WorldParams(const BlockArray& _b) :
-        b(_b),
-        sl(_b.xSize, _b.zSize),
-        bl(_b.xSize, _b.zSize),
-        hm(NULL),
-        // assume size is multiple of 16
-        sizeX(_b.xSize/16),
-        sizeZ(_b.zSize/16),
+    WorldParams(int _size, ChunkCallback _chunkCB, SectionCallback _sectionCB) :
+        sizeX(_size),
+        sizeZ(_size),
         // center world on origin
-        startX(-(sizeX/2)),
-        startZ(-(sizeZ/2))
-    {
-        hm = new int32_t[b.zSize * b.xSize];
-
-        cout << "lighting..." << endl;
-
-        deque<Vec3> q, qnext; // processing queue
-
-        // clear light maps
-        std::fill_n(sl.buf, sl.xSize * sl.zSize * sl.ySize, 0);
-        std::fill_n(bl.buf, bl.xSize * bl.zSize * bl.ySize, 0);
-
-        // calculate heightmap and lighting
-        for (int x = 0; x < b.xSize; x++)
-        for (int z = 0; z < b.zSize; z++) {
-            int y = b.ySize - 1;
-            // while going through air
-            while (y >= 0 && b(x,y,z) == 0) {
-                // set skylight
-                sl.set(x,y,z,15);
-                y--;
-            }
-            // set heightmap
-            hm[z * b.xSize + x] = y + 1;
-        }
-
-        // initialize lighting queue
-        for (int x = 1; x < b.xSize - 1; x++)
-        for (int z = 1; z < b.zSize - 1; z++) {
-            int hi = max({
-                    hm[(z)*b.xSize + x-1],
-                    hm[(z)*b.xSize + x+1],
-                    hm[(z-1)*b.xSize + x],
-                    hm[(z+1)*b.xSize + x]});
-            int lo = max(hm[z*b.xSize + x], 1);
-            for (int y = hi - 1; y >= lo; y--)
-                q.emplace_back(x,y,z); // add to queue
-        }
-
-        // perform lighting
-        for (int i = 14; i > 0; i--) {
-            for (deque<Vec3>::iterator it = q.begin(); it != q.end(); ++it) {
-#define LIGHTING_TRY(x, y, z) \
-                if (b(x,y,z) == 0 && sl(x,y,z) < i) { \
-                    sl.set(x,y,z,i); \
-                    if (x>0 && y>0 && z>0 \
-                            && x<b.xSize-1 && y<b.ySize-1 && z<b.zSize-1) \
-                        qnext.emplace_back(x,y,z); \
-                }
-                int x = it->x;
-                int y = it->y;
-                int z = it->z;
-                LIGHTING_TRY(x+1,y,z);
-                LIGHTING_TRY(x-1,y,z);
-                LIGHTING_TRY(x,y+1,z);
-                LIGHTING_TRY(x,y-1,z);
-                LIGHTING_TRY(x,y,z+1);
-                LIGHTING_TRY(x,y,z-1);
-#undef LIGHTING_TRY
-            }
-            q.clear();
-            q.swap(qnext);
-        }
-
-    }
-
-    ~WorldParams()
-    {
-        if (hm)
-            delete[] hm;
-    }
+        startX(-(_size/2)),
+        startZ(-(_size/2)),
+        chunkCB(_chunkCB),
+        sectionCB(_sectionCB)
+    { }
 };
 
 
@@ -245,62 +156,33 @@ struct LevelDat
 
 struct MCAChunkSection
 {
-    int8_t yIndex;
-    int8_t *Blocks;
-    int8_t *Data;
-    int8_t *BlockLight;
-    int8_t *SkyLight;
+    WorldParams *params;
+    int xPos, yPos, zPos; // blocks/16
 
-    MCAChunkSection(int _yIndex, int xPos, int zPos, const WorldParams& params) :
-        yIndex(_yIndex),
-        Blocks(NULL),
-        Data(NULL),
-        BlockLight(NULL),
-        SkyLight(NULL)
-    {
-        Blocks = new int8_t[BLOCKS_SIZE];
-        Data = new int8_t[DATA_SIZE];
-        BlockLight = new int8_t[BLOCKLIGHT_SIZE];
-        SkyLight = new int8_t[SKYLIGHT_SIZE];
-
-        const int sx = (xPos - params.startX) * 16;
-        const int sz = (zPos - params.startZ) * 16;
-        const int sy = yIndex * 16;
-        for (int y=0; y<SECTION_HEIGHT; y++)
-        for (int z=0; z<CHUNK_WIDTH; z++)
-        for (int x=0; x<CHUNK_WIDTH; x++) {
-            const int i = y * CHUNK_WIDTH * CHUNK_WIDTH + z * CHUNK_WIDTH + x;
-            // copy in blockids and light
-            Blocks[i] = params.b(sx+x, sy+y, sz+z);
-            if (i & 1) {
-                Data[i/2] = 0;
-                BlockLight[i/2] = 0;
-                SkyLight[i/2] = (params.sl(sx+x, sy+y, sz+z) << 4) | params.sl(sx+x-1, sy+y, sz+z);
-            }
-        }
-    }
-
-    ~MCAChunkSection()
-    {
-        if (Blocks)
-            delete[] Blocks;
-        if (Data)
-            delete[] Data;
-        if (BlockLight)
-            delete[] BlockLight;
-        if (SkyLight)
-            delete[] SkyLight;
-    }
+    MCAChunkSection(int _xPos, int _yPos, int _zPos, WorldParams *_params) :
+        params(_params),
+        xPos(_xPos),
+        yPos(_yPos),
+        zPos(_zPos)
+    { }
 
     nbt_node* toNBT()
     {
+        // fill arrays
+        uint8_t *Blocks = allocate_byte_array(BLOCKS_SIZE);
+        uint8_t *Data = allocate_byte_array(DATA_SIZE);
+        uint8_t *BlockLight = allocate_byte_array(BLOCKLIGHT_SIZE);
+        uint8_t *SkyLight = allocate_byte_array(SKYLIGHT_SIZE);
+
+        params->sectionCB(xPos - params->startX, yPos, zPos - params->startZ, Blocks, Data, BlockLight, SkyLight);
+
         // important to use NULL for name when it'll be a tag_list entry
         return tag_compound(NULL, NBTList()
-                << tag_byte("Y",yIndex)
-                << tag_byte_array("Blocks",BLOCKS_SIZE,Blocks)
-                << tag_byte_array("Data",DATA_SIZE,Data)
-                << tag_byte_array("BlockLight",BLOCKLIGHT_SIZE,BlockLight)
-                << tag_byte_array("SkyLight",SKYLIGHT_SIZE,SkyLight)
+                << tag_byte("Y",yPos)
+                << tag_byte_array_allocated("Blocks",BLOCKS_SIZE,Blocks)
+                << tag_byte_array_allocated("Data",DATA_SIZE,Data)
+                << tag_byte_array_allocated("BlockLight",BLOCKLIGHT_SIZE,BlockLight)
+                << tag_byte_array_allocated("SkyLight",SKYLIGHT_SIZE,SkyLight)
                 );
     }
 };
@@ -310,53 +192,43 @@ struct MCAChunk
 {
     typedef vector<MCAChunkSection*> SectionsList;
 
+    WorldParams *params;
     int32_t xPos;
     int32_t zPos;
     int64_t LastUpdate;
     int8_t TerrainPopulated;
-    int8_t *Biomes;
-    int32_t *HeightMap;
     SectionsList Sections;
     //Entities
     //TileEntities
 
-    MCAChunk(int32_t x, int32_t z, const WorldParams& params) :
+    MCAChunk(int32_t x, int32_t z, WorldParams *_params) :
+        params(_params),
         xPos(x),
         zPos(z),
         LastUpdate(0),
         TerrainPopulated(1),
-        Biomes(NULL),
-        HeightMap(NULL),
         Sections()
     {
-        Biomes = new int8_t[BIOMES_SIZE];
-        HeightMap = new int32_t[HEIGHTMAP_SIZE];
-        
-        for (int i=0; i<BIOMES_SIZE; i++)
-            Biomes[i] = 0;
-        
-        const int sx = (xPos - params.startX) * 16;
-        const int sz = (zPos - params.startZ) * 16;
-        for (int z=0; z<CHUNK_WIDTH; z++)
-        for (int x=0; x<CHUNK_WIDTH; x++)
-            HeightMap[z*CHUNK_WIDTH + x] = params.hm[(sz+z)*params.b.xSize + sx+x];
-        
         for (int i=0; i<MAX_SECTIONS; i++)
-            Sections.push_back(new MCAChunkSection(i, xPos, zPos, params));
+            Sections.push_back(new MCAChunkSection(xPos, i, zPos, params));
     }
 
     ~MCAChunk()
     {
-        if (Biomes)
-            delete[] Biomes;
-        if (HeightMap)
-            delete[] HeightMap;
         for (SectionsList::iterator it=Sections.begin(); it!=Sections.end(); ++it)
             delete (*it);
     }
 
     nbt_node* toNBT()
     {
+        // fill arrays
+        uint8_t *Biomes = NULL;
+        int32_t *HeightMap = NULL;
+        Biomes = allocate_byte_array(BIOMES_SIZE);
+        HeightMap = allocate_int_array(HEIGHTMAP_SIZE);
+
+        params->chunkCB(xPos - params->startX, zPos - params->startZ, Biomes, HeightMap);
+
         NBTList sectlist;
         for (SectionsList::iterator it=Sections.begin(); it!=Sections.end(); ++it)
             sectlist << (*it)->toNBT();
@@ -366,8 +238,8 @@ struct MCAChunk
                 << tag_int("zPos",zPos)
                 << tag_long("LastUpdate",LastUpdate)
                 << tag_byte("TerrainPopulated",TerrainPopulated)
-                //<< tag_byte_array("Biomes",BIOMES_SIZE,Biomes)
-                << tag_int_array("HeightMap",HEIGHTMAP_SIZE,HeightMap)
+                << tag_byte_array_allocated("Biomes",BIOMES_SIZE,Biomes)
+                << tag_int_array_allocated("HeightMap",HEIGHTMAP_SIZE,HeightMap)
                 << tag_list("Sections", sectlist)
                 );
 
@@ -379,6 +251,7 @@ struct MCAChunk
 
 struct Region 
 {
+    WorldParams *params;
     // region coords (i.e. blocks/32)
     int xIndex;
     int zIndex;
@@ -391,7 +264,8 @@ struct Region
     // 2d array of pointers: ZX order
     MCAChunk **chunks;
 
-    Region(const int _xIndex, const int _zIndex, const WorldParams& p) :
+    Region(const int _xIndex, const int _zIndex, WorldParams *p) :
+        params(p),
         xIndex(_xIndex),
         zIndex(_zIndex),
         startX(_xIndex * REGION_WIDTH),
@@ -401,19 +275,19 @@ struct Region
         chunks(NULL)
     {
         // bounds adjustment
-        if (startX < p.startX) {
-            sizeX -= p.startX - startX;
-            startX = p.startX;
+        if (startX < p->startX) {
+            sizeX -= p->startX - startX;
+            startX = p->startX;
         }
-        if (startZ < p.startZ) {
-            sizeZ -= p.startZ - startZ;
-            startZ = p.startZ;
+        if (startZ < p->startZ) {
+            sizeZ -= p->startZ - startZ;
+            startZ = p->startZ;
         }
-        if (startX + sizeX > p.startX + p.sizeX) {
-            sizeX -= (startX + sizeX) - (p.startX + p.sizeX);
+        if (startX + sizeX > p->startX + p->sizeX) {
+            sizeX -= (startX + sizeX) - (p->startX + p->sizeX);
         }
-        if (startZ + sizeZ > p.startZ + p.sizeZ) {
-            sizeZ -= (startZ + sizeZ) - (p.startZ + p.sizeZ);
+        if (startZ + sizeZ > p->startZ + p->sizeZ) {
+            sizeZ -= (startZ + sizeZ) - (p->startZ + p->sizeZ);
         }
         if (sizeX <= 0 || sizeZ <= 0) {
             // empty area
@@ -543,12 +417,9 @@ struct World
     WorldParams params;
 
     // parameters measured in chunks
-    World(const char *_name, const BlockArray& b) :
+    World(const char *_name, WorldParams _params) :
         name(_name),
-        params(b)
-    { }
-
-    ~World()
+        params(_params)
     { }
 
     ERR writeToDir(const char *dirName)
@@ -600,7 +471,7 @@ struct World
         for (int iz = rgnMinZ; iz <= rgnMaxZ; iz++)
         for (int ix = rgnMinX; ix <= rgnMaxX; ix++) {
             // short-lived region instance
-            Region *rgn = new Region(ix, iz, params);
+            Region *rgn = new Region(ix, iz, &params);
             ERR result = rgn->writeToFile();
             delete rgn;
             if (result != ERR::NONE)
@@ -619,13 +490,14 @@ ERR canExport(const char *worldName)
     return ERR::NONE;
 }
 
-ERR exportWorld(const char *worldName, const BlockArray& b)
+// size in chunks
+ERR exportWorld(const char *worldName, int size, ChunkCallback chunkCB, SectionCallback sectionCB)
 {
     ERR result = canExport(worldName);
     if (result != ERR::NONE)
         return result;
 
-    World *world = new World(worldName, b);
+    World *world = new World(worldName, WorldParams(size, chunkCB, sectionCB));
 
     result = world->writeToDir(worldName);
 

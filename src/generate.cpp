@@ -7,9 +7,15 @@
 #include <iostream>
 
 
+inline int max(int a, int b) { return a < b ? b : a; }
+
 // fill with zeroes
 inline void clear(BlockArray& b) { 
     std::fill_n(b.buf, b.xSize * b.zSize * b.ySize, 0);
+}
+
+inline void clear(Heightmap *h) { 
+    std::fill_n(h->buf, h->size * h->size, 0.0f);
 }
 
 // unchecked!
@@ -197,16 +203,20 @@ float *runPlatec(
 }
 
 
-BlockArray genPlatec(const int size, const int voidPadding,
-        const int scaleh, const int scalev)
+// globals for callbacks
+Heightmap *worldmap = NULL;
+float sealevel = 0;
+
+void genPlatec(const int size, const int voidPadding,
+        const int scaleh, const int scalev, Heightmap **out_worldmap, float *out_sealevel)
 {
     const int fullSize = size + voidPadding * 2; // inner padding
     const int mx = fullSize * 16;
     const int mz = fullSize * 16;
-    const int my = 256;
+    //const int my = 256;
     const int pd = voidPadding * 16; // padding in blocks
 
-    const float yscale = 256.0f/(float)scalev;
+    //const float yscale = 256.0f/(float)scalev;
 
     const int map_side = (mz - pd*2) / scaleh;
     const float sea_level = DEFAULT_SEA_LEVEL;
@@ -223,24 +233,68 @@ BlockArray genPlatec(const int size, const int voidPadding,
             sea_level);
 
 
-    BlockArray b(mx, mz); // our world representation
-    clear(b);
+    Heightmap *out = new Heightmap(mz); // our world representation
+    clear(out);
 
     //MTRand rng; // random number generator
 
-    // convert heightmap to blockids
+    // interpolate heightmap
     for (int x = 0; x < mx - pd*2; x++)
-    for (int z = 0; z < mz - pd*2; z++)
-    for (int y = 0; y < my; y++) {
-        float val = (y - 64) * yscale/256.0f;
-        b.set(x+pd, y, z+pd,
-                val < hm[(x/scaleh)*map_side + z/scaleh] ? 1 : (val < sea_level ? 9 : 0));
+    for (int z = 0; z < mz - pd*2; z++) {
+        out->set(x+pd, z+pd, hm[(x/scaleh)*map_side + (z/scaleh)] * scalev);
     }
 
+    *out_worldmap = out;
+    *out_sealevel = sea_level * scalev;
+
     delete[] hm;
-    return b;
 }
 
+
+void chunkCB(int x, int z, uint8_t *biomes, int32_t *heightmap)
+{
+    x *= 16;
+    z *= 16;
+
+    // XZ order
+    for (int i = 0; i < BIOMES_SIZE; i++)
+        biomes[i] = 0;
+
+    // ZX order
+    for (int iz = 0; iz < CHUNK_WIDTH; iz++)
+    for (int ix = 0; ix < CHUNK_WIDTH; ix++)
+        heightmap[iz * CHUNK_WIDTH + ix] = (int)worldmap->get(x+ix, z+iz);
+}
+
+void sectionCB(int x, int y, int z,
+        uint8_t *blocks, uint8_t *data, uint8_t *blocklight, uint8_t *skylight)
+{
+    x *= 16;
+    y *= 16;
+    z *= 16;
+
+    const int sea = (int)sealevel;
+    int i = 0;
+    // YZX order
+    for (int iy = y; iy < y + SECTION_HEIGHT; iy++)
+    for (int iz = z; iz < z + CHUNK_WIDTH; iz++)
+    for (int ix = x; ix < x + CHUNK_WIDTH; ix++) {
+        int val = (int)worldmap->get(ix, iz);
+
+        blocks[i] = iy <= val ? 1 : (iy <= sea ? 9 : 0);
+
+        uint8_t sl = iy <= val ? 0 : (iy <= sea ? max(0, 12-3*(sea-iy)) : 15);
+        if (i & 1) {
+            skylight[i/2] |= sl << 4;
+        } else {
+            skylight[i/2] = sl;
+            data[i/2] = 0;
+            blocklight[i/2] = 0;
+        }
+
+        ++i;
+    }
+}
 
 
 /* generates a square world 'size' chunks to a side,
@@ -258,10 +312,10 @@ ERR generateWorld(const char *worldName, const int size, const int voidPadding,
 
     // generate
     //BlockArray b = gen1(size, voidPadding);
-    BlockArray b = genPlatec(size, voidPadding, pt_scaleh, pt_scalev);
+    genPlatec(size, voidPadding, pt_scaleh, pt_scalev, &worldmap, &sealevel);
 
     // export
-    result = exportWorld(worldName, b);
+    result = exportWorld(worldName, size + voidPadding * 2, chunkCB, sectionCB);
 
     return result;
 }

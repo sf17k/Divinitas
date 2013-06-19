@@ -4,6 +4,9 @@
 #include <cstring>
 using namespace std;
 
+uint8_t* allocate_byte_array(int32_t length) { return (uint8_t*)malloc(length); }
+int32_t* allocate_int_array(int32_t length) { return (int32_t*)malloc(length * 4); }
+
 // assumes all entries are the type of the first
 nbt_list *list_payload(NBTList list)
 {
@@ -78,17 +81,17 @@ nbt_node *tag_string(const char *name, const char* str) {
     strcpy(node->payload.tag_string, str);
     return node;
 }
-nbt_node *tag_byte_array(const char *name, int32_t length, const int8_t* data) {
+nbt_node *tag_byte_array(const char *name, int32_t length, const uint8_t* data) {
     nbt_node *node = new_node(name, TAG_BYTE_ARRAY);
     node->payload.tag_byte_array.length = length;
-    node->payload.tag_byte_array.data = (unsigned char*)malloc(length);
+    node->payload.tag_byte_array.data = allocate_byte_array(length);
     memcpy(node->payload.tag_byte_array.data, data, length);
     return node;
 }
 nbt_node *tag_int_array(const char *name, int32_t length, const int32_t* data) {
     nbt_node *node = new_node(name, TAG_INT_ARRAY);
     node->payload.tag_int_array.length = length;
-    node->payload.tag_int_array.data = (int32_t*)malloc(length * 4);
+    node->payload.tag_int_array.data = allocate_int_array(length);
     memcpy(node->payload.tag_int_array.data, data, length * 4);
     return node;
 }
@@ -103,4 +106,16 @@ nbt_node *tag_compound(const char *name, NBTList entries) {
     return node;
 }
 
+nbt_node *tag_byte_array_allocated(const char *name, int32_t length, uint8_t* data) {
+    nbt_node *node = new_node(name, TAG_BYTE_ARRAY);
+    node->payload.tag_byte_array.length = length;
+    node->payload.tag_byte_array.data = data;
+    return node;
+}
+nbt_node *tag_int_array_allocated(const char *name, int32_t length, int32_t* data) {
+    nbt_node *node = new_node(name, TAG_INT_ARRAY);
+    node->payload.tag_int_array.length = length;
+    node->payload.tag_int_array.data = data;
+    return node;
+}
 

@@ -34,6 +34,9 @@ struct nbt_list {
     list_head entry;
 };
 
+uint8_t* allocate_byte_array(int32_t length);
+int32_t* allocate_int_array(int32_t length);
+
 nbt_node *tag_byte(const char *name, int8_t);
 nbt_node *tag_short(const char *name, int16_t);
 nbt_node *tag_int(const char *name, int32_t);
@@ -41,8 +44,10 @@ nbt_node *tag_long(const char *name, int64_t);
 nbt_node *tag_float(const char *name, float);
 nbt_node *tag_double(const char *name, double);
 nbt_node *tag_string(const char *name, const char* str);
-nbt_node *tag_byte_array(const char *name, int32_t length, const int8_t* data);
-nbt_node *tag_int_array(const char *name, int32_t length, const int32_t* data);
+//nbt_node *tag_byte_array(const char *name, int32_t length, const uint8_t* data);
+//nbt_node *tag_int_array(const char *name, int32_t length, const int32_t* data);
+nbt_node *tag_byte_array_allocated(const char *name, int32_t length, uint8_t* data);
+nbt_node *tag_int_array_allocated(const char *name, int32_t length, int32_t* data);
 nbt_node *tag_list(const char *name, NBTList entries);
 nbt_node *tag_compound(const char *name, NBTList entries);
 
