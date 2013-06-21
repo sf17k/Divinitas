@@ -241,7 +241,15 @@ void genPlatec(const int size, const int voidPadding,
     // interpolate heightmap
     for (int x = 0; x < mx - pd*2; x++)
     for (int z = 0; z < mz - pd*2; z++) {
-        out->set(x+pd, z+pd, hm[(x/scaleh)*map_side + (z/scaleh)] * scalev);
+        int ix = x/scaleh;
+        int iz = z/scaleh;
+        float fx = (float)(x - ix*scaleh)/(float)scaleh;
+        float fz = (float)(z - iz*scaleh)/(float)scaleh;
+        float x0 = hm[(ix)*map_side + (iz)] * (1.0f-fz)
+                 + hm[(ix)*map_side + (iz+1)] * fz;
+        float x1 = hm[(ix+1)*map_side + (iz)] * (1.0f-fz)
+                 + hm[(ix+1)*map_side + (iz+1)] * fz;
+        out->set(x+pd, z+pd, (x0*(1.0f-fx) + x1*fx) * scalev);
     }
 
     *out_worldmap = out;
